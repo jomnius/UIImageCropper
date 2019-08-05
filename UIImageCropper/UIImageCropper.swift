@@ -21,7 +21,7 @@ import UIKit
 }
 
 public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    
+
     /// Aspect ratio of the cropped image
     public var cropRatio: CGFloat = 1
     /// delegate that implements UIImageCropperProtocol
@@ -47,6 +47,7 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
             }
             layoutDone = false
             ratio = image.size.height / image.size.width
+            cropRatio = image.size.width / image.size.height
             imageView.image = image
             self.view.layoutIfNeeded()
         }
@@ -72,16 +73,16 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
 
     private var ratio: CGFloat = 1
     private var layoutDone: Bool = false
-    
+
     private var orgHeight: CGFloat = 0
     private var orgWidth: CGFloat = 0
     private var topStart: CGFloat = 0
     private var leadStart: CGFloat = 0
     private var pinchStart: CGPoint = .zero
-    
+
     private let cropButton = UIButton(type: .custom)
     private let cancelButton = UIButton(type: .custom)
-    
+
     //MARK: - inits
     /// initializer
     /// - parameter cropRatio
@@ -94,7 +95,7 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
     //MARK: - overrides
     override public func viewDidLoad() {
         super.viewDidLoad()
-        
+
         self.view.backgroundColor = UIColor.black
 
         //main views
@@ -116,13 +117,19 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
         topView.addSubview(imageView)
         topConst = NSLayoutConstraint(item: imageView, attribute: .top, relatedBy: .equal, toItem: topView, attribute: .top, multiplier: 1, constant: 0)
         topConst?.priority = .defaultHigh
+        topConst?.identifier = "topConst".uppercased()
         leadConst = NSLayoutConstraint(item: imageView, attribute: .leading, relatedBy: .equal, toItem: topView, attribute: .leading, multiplier: 1, constant: 0)
         leadConst?.priority = .defaultHigh
+        leadConst?.identifier = "leadConst".uppercased()
+
         imageWidthConst = NSLayoutConstraint(item: imageView, attribute: .width, relatedBy: .equal, toItem: nil, attribute: .width, multiplier: 1, constant: 1)
         imageWidthConst?.priority = .required
+        imageWidthConst?.identifier = "imageWidthConst".uppercased()
         imageHeightConst = NSLayoutConstraint(item: imageView, attribute: .height, relatedBy: .equal, toItem: nil, attribute: .height, multiplier: 1, constant: 1)
         imageHeightConst?.priority = .required
+        imageHeightConst?.identifier = "imageHeightConst".uppercased()
         imageView.addConstraints([imageHeightConst!, imageWidthConst!])
+
         topView.addConstraints([topConst!, leadConst!])
         imageView.image = self.image
 
@@ -131,6 +138,12 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
         imageView.addGestureRecognizer(pinchGesture)
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(pan))
         imageView.addGestureRecognizer(panGesture)
+        let doubleTapGesture = UITapGestureRecognizer(target: self, action: #selector(doubleTap))
+        doubleTapGesture.numberOfTapsRequired = 2
+        doubleTapGesture.require(toFail: pinchGesture)
+        doubleTapGesture.require(toFail: panGesture)
+        imageView.addGestureRecognizer(doubleTapGesture)
+
         imageView.isUserInteractionEnabled = true
 
         //fade overlay
@@ -176,19 +189,19 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
         let centerCropXConst = NSLayoutConstraint(item: cropButton, attribute: .centerX, relatedBy: .equal, toItem: bottomView, attribute: .centerX, multiplier: cropCenterXMultiplier, constant: 0)
         let centerCropYConst = NSLayoutConstraint(item: cropButton, attribute: .centerY, relatedBy: .equal, toItem: bottomView, attribute: .centerY, multiplier: 1, constant: 0)
         bottomView.addConstraints([centerCropXConst, centerCropYConst])
-        
+
         self.view.bringSubviewToFront(bottomView)
 
         bottomView.layoutIfNeeded()
         topView.layoutIfNeeded()
     }
-    
+
     override public func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        
+
         self.cancelButton.setTitle(cancelButtonText, for: .normal)
         self.cropButton.setTitle(cropButtonText, for: .normal)
-        
+
         if image == nil {
             self.dismiss(animated: true, completion: nil)
         }
@@ -201,23 +214,15 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
         }
         layoutDone = true
 
-        if ratio < 1 {
-            imageWidthConst?.constant = cropView.frame.height / ratio
-            imageHeightConst?.constant = cropView.frame.height
-        } else {
-            imageWidthConst?.constant = cropView.frame.width
-            imageHeightConst?.constant = cropView.frame.width * ratio
-        }
+        resetImageConstraints()
 
         let horizontal = NSLayoutConstraint.constraints(withVisualFormat: "H:|-(<=\(cropView.frame.origin.x))-[view]-(<=\(cropView.frame.origin.x))-|", options: NSLayoutConstraint.FormatOptions(), metrics: nil, views: ["view": imageView])
         let vertical = NSLayoutConstraint.constraints(withVisualFormat: "V:|-(<=\(cropView.frame.origin.y))-[view]-(<=\(cropView.frame.origin.y))-|", options: NSLayoutConstraint.FormatOptions(), metrics: nil, views: ["view": imageView])
         topView.addConstraints(horizontal + vertical)
-        
+
         maskFadeView()
-        orgWidth = imageWidthConst!.constant
-        orgHeight = imageHeightConst!.constant
     }
-    
+
     private func maskFadeView() {
         let path = UIBezierPath(rect: cropView.frame)
         path.append(UIBezierPath(rect: fadeView.frame))
@@ -247,7 +252,7 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
             self.delegate?.didCropImage(originalImage: self.image, croppedImage: self.cropImage)
         }
     }
-    
+
     @objc func cropCancel() {
         presenting = false
         if picker == nil {
@@ -260,27 +265,102 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
     }
 
     //MARK: - gesture handling
+
     @objc func pinch(_ pinch: UIPinchGestureRecognizer) {
         if pinch.state == .began {
             orgWidth = imageWidthConst!.constant
             orgHeight = imageHeightConst!.constant
-            pinchStart = pinch.location(in: self.view)
+            pinchStart = pinch.location(in: self.imageView)
         }
-        let scale = pinch.scale
-        let height = max(orgHeight * scale, cropView.frame.height)
-        let width = max(orgWidth * scale, cropView.frame.height / ratio)
+        debugGesture("pinch", gesture: pinch)
+
+        self.view.layoutIfNeeded()
+        UIView.animate(withDuration: 0.1) {
+            self.scaleImage(pinch.scale, center: self.pinchStart, view: self.cropView)
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc func pan(_ pan: UIPanGestureRecognizer) {
+        let validStates: [UIGestureRecognizer.State] = [.began, .changed, .ended]
+        guard validStates.contains(pan.state) else { return }
+        if pan.state == .began {
+            leadStart = leadConst!.constant
+            topStart = topConst!.constant
+            return
+        }
+        debugGesture("pan", gesture: pan)
+        let trans = pan.translation(in: self.view)
+        let newLead = leadStart + trans.x
+        let newTop = topStart + trans.y
+
+        self.leadConst?.constant = newLead
+        self.topConst?.constant = newTop
+
+        self.view.layoutIfNeeded()
+        UIView.animate(withDuration: 0.1) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    @objc func doubleTap(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended else { return }
+        let zoom = imageView.frame.height / cropView.frame.height
+
+        debugGesture("doubleTap", gesture: tap)
+
+        self.view.layoutIfNeeded() // complete pending layout operations
+        UIView.animate(withDuration: 0.2) {
+            if zoom > 1 {
+                self.resetZoom()
+            } else {
+                self.scaleImage(2, center: tap.location(in: self.cropView), view: self.cropView)
+            }
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func scaleImage(_ scale: CGFloat, center: CGPoint, view: UIView) {
+        let height = max(orgHeight * scale, view.frame.height)
+        let width = max(orgWidth * scale, view.frame.height / ratio)
         imageHeightConst?.constant = height
         imageWidthConst?.constant = width
+
+        leadConst?.constant = leadStart - (center.x - view.frame.origin.x) * scale / 2
+        topConst?.constant = topStart - (center.y - view.frame.origin.y) * scale / 2
+
+        //print(view.constraints)
+        //        print(cropView.constraints)
+        //        print(imageView.constraints)
+        //        print(topView.constraints)
     }
-    
-    @objc func pan(_ pan: UIPanGestureRecognizer) {
-        if pan.state == .began {
-            topStart = topConst!.constant
-            leadStart = leadConst!.constant
+
+    private func debugGesture(_ title: String, gesture: UIGestureRecognizer) {
+        let loc = gesture.location(in: self.view)
+        let loc2 = gesture.location(in: self.cropView)
+        let loc3 = gesture.location(in: self.imageView)
+        // gesture.name only from iOS 11
+        print("\n\(title.uppercased()):\nview: \(loc) \(view.frame)\ncropView: \(loc2) \(cropView.frame)\nimageView: \(loc3) \(imageView.frame)")
+    }
+
+    private func resetZoom() {
+        leadStart = 0
+        topStart = 0
+        leadConst?.constant = topStart
+        topConst?.constant = leadStart
+        resetImageConstraints()
+    }
+
+    private func resetImageConstraints() {
+        if ratio < 1 {
+            imageWidthConst?.constant = cropView.frame.height / ratio
+            imageHeightConst?.constant = cropView.frame.height
+        } else {
+            imageWidthConst?.constant = cropView.frame.width
+            imageHeightConst?.constant = cropView.frame.width * ratio
         }
-        let trans = pan.translation(in: self.view)
-        leadConst?.constant = leadStart + trans.x
-        topConst?.constant = topStart + trans.y
+        orgWidth = imageWidthConst!.constant
+        orgHeight = imageHeightConst!.constant
     }
 
     //MARK: - cropping done here
@@ -309,9 +389,9 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
             picker.dismiss(animated: true, completion: nil)
         }
     }
-    
+
     var presenting = false
-    
+
     public func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
         guard !presenting else {
             return
@@ -328,7 +408,7 @@ public class UIImageCropper: UIViewController, UIImagePickerControllerDelegate, 
         self.willMove(toParent: self.picker)
         self.beginAppearanceTransition(true, animated: false)
     }
-    
+
 }
 
 extension UIView {
